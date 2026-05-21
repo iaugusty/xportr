@@ -324,6 +324,15 @@ test_that("type Test 11: Works as expected with only one domain in metadata", {
   )
 
   expect_equal(xportr_type(adsl, metadata), adsl)
+
+  # xportr_type() works when metadata has no dataset column
+  df <- data.frame(X = c("1", "2"), Y = c("a", "b"))
+  metadata <- data.frame(variable = c("X", "Y"), type = c("numeric", "character"))
+
+  out <- suppressMessages(xportr_type(df, metadata))
+
+  expect_true(is.numeric(out$X))
+  expect_true(is.character(out$Y))
 })
 
 # xportr_type ----
@@ -379,7 +388,7 @@ test_that("xportr_type() warns and preserves grouping when verbose = 'warn'", {
 
   adsl <- data.frame(
     USUBJID = c("1001", "1002", "1003"),
-    AGE = c(63, 35, 27),
+    AGE = c("63", "35", "27"),
     stringsAsFactors = FALSE
   )
 
@@ -394,11 +403,15 @@ test_that("xportr_type() warns and preserves grouping when verbose = 'warn'", {
 
   expect_true(dplyr::is_grouped_df(grouped))
 
-  expect_warning(
-    out <- xportr_type(grouped, metadata = metadata, domain = "ADSL", verbose = "warn"),
-    "Input data is grouped by:",
-    fixed = FALSE
+  warns <- testthat::capture_warnings(
+    out <- suppressMessages(xportr_type(grouped, metadata = metadata, domain = "ADSL", verbose = "warn"))
   )
+
+  expect_true(all(
+    c("Input data is grouped by:", "Variable type\\(s\\) in dataframe don't match metadata") |>
+      sapply(\(x) any(grepl(x, warns)))
+  ))
+
 
   # Grouping preserved; types applied
   expect_true(dplyr::is_grouped_df(out))
@@ -512,4 +525,47 @@ test_that("xportr_type() errors on non-data-frame input (via group_data_check)",
   expect_error(
     xportr_type(1:5, metadata = metadata, domain = "ADSL", verbose = "warn")
   )
+})
+
+# xportr_type ----
+## Test 13: Domain not found in metadata triggers the expected log/error/warning ----
+
+test_that("xportr_type() errors or warns when domain is not found in metadata", {
+  df13 <- data.frame(X = 1)
+  metadata <- data.frame(dataset = "other", variable = "X", type = "numeric")
+
+  expect_error(
+    suppressMessages(xportr_type(df13, metadata, domain = "missing_domain", verbose = "stop")),
+    regex = "Domain 'missing_domain' not found in metadata 'dataset' column."
+  )
+  expect_warning(
+    suppressMessages(xportr_type(df13, metadata, domain = "missing_domain", verbose = "warn")),
+    regex = "Domain 'missing_domain' not found in metadata 'dataset' column."
+  )
+})
+
+## Test 14: Variables not in metadata are left unchanged (silently) ----
+test_that("xportr_type() leaves columns not in metadata unchanged", {
+  df14 <- data.frame(
+    USUBJID = c("001", "002"),
+    EXTRA = c(1L, 2L),
+    EXTRA2 = factor(c("Low", "Low"), levels = c("Low", "Medium", "High")),
+    EXTRA3 = factor(c("Low", "Low"), levels = c("Low", "Medium", "High"))
+  )
+  metadata14 <- data.frame(
+    dataset = c("df", "df"),
+    variable = c("USUBJID", "EXTRA3"),
+    type = c("character", "character")
+  )
+
+  out <- suppressMessages(xportr_type(df14, metadata14, domain = "df"))
+
+  expect_identical(out$EXTRA, df14$EXTRA)
+  expect_true(is.integer(out$EXTRA))
+
+  expect_identical(out$EXTRA2, df14$EXTRA2)
+  expect_true(is.factor(out$EXTRA2))
+
+  expect_identical(out$EXTRA3, as.character(df14$EXTRA3))
+  expect_true(is.character(out$EXTRA3))
 })
